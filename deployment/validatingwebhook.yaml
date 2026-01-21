@@ -1,4 +1,4 @@
-apiVersion: admissionregistration.k8s.io/v1beta1
+apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: validation-lxcfs-admission-webhook-cfg
@@ -8,10 +8,12 @@ webhooks:
   - name: validation.lxcfs-admission-webhook.aliyun.com
     clientConfig:
       service:
-        name: lxcfs-admission-webhook-svc
-        namespace: default
+        name: lxcfs-admission-webhook
+        namespace: ${NAMESPACE}
         path: "/validate"
       caBundle: ${CA_BUNDLE}
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
     rules:
       - operations: [ "CREATE" ]
         apiGroups: ["pod", ""]

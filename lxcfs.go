@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-	"k8s.io/api/admission/v1beta1"
 
+	v1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -32,8 +32,12 @@ var (
 // -v /var/lib/lxcfs/proc/swaps:/proc/swaps:ro
 // -v /var/lib/lxcfs/proc/uptime:/proc/uptime:ro
 // -v /var/lib/lxcfs/proc/loadavg:/proc/loadavg:ro
+// -v /var/lib/lxcfs/proc/slabinfo:/proc/slabinfo:ro
+// -v /var/lib/lxcfs/proc/pressure/io:/proc/pressure/io:ro
+// -v /var/lib/lxcfs/proc/pressure/cpu:/proc/pressure/cpu:ro
+// -v /var/lib/lxcfs/proc/pressure/memory:/proc/pressure/memory:ro
+// -v /var/lib/lxcfs/sys/devices/system/cpu:/sys/devices/system/cpu:ro
 var volumeMountsTemplate = []corev1.VolumeMount{
-
 	{
 		Name:      "lxcfs-proc-cpuinfo",
 		MountPath: "/proc/cpuinfo",
@@ -70,11 +74,36 @@ var volumeMountsTemplate = []corev1.VolumeMount{
 		ReadOnly:  true,
 	},
 	{
-		Name:      "lxcfs-sys-devices-system-cpu-online",
-		MountPath: "/sys/devices/system/cpu/online",
+		Name:      "lxcfs-proc-slabinfo",
+		MountPath: "/proc/slabinfo",
+		ReadOnly:  true,
+	},
+
+	// --- Pressure Stall Information (PSI) ---
+	// {
+	// 	Name:      "lxcfs-proc-pressure-io",
+	// 	MountPath: "/proc/pressure/io",
+	// 	ReadOnly:  true,
+	// },
+	// {
+	// 	Name:      "lxcfs-proc-pressure-cpu",
+	// 	MountPath: "/proc/pressure/cpu",
+	// 	ReadOnly:  true,
+	// },
+	// {
+	// 	Name:      "lxcfs-proc-pressure-memory",
+	// 	MountPath: "/proc/pressure/memory",
+	// 	ReadOnly:  true,
+	// },
+
+	// --- Sys Devices ---
+	{
+		Name:      "lxcfs-sys-devices-system-cpu",
+		MountPath: "/sys/devices/system/cpu",
 		ReadOnly:  true,
 	},
 }
+
 var volumesTemplate = []corev1.Volume{
 	{
 		Name: "lxcfs-proc-cpuinfo",
@@ -133,17 +162,49 @@ var volumesTemplate = []corev1.Volume{
 		},
 	},
 	{
-		Name: "lxcfs-sys-devices-system-cpu-online",
+		Name: "lxcfs-proc-slabinfo",
 		VolumeSource: corev1.VolumeSource{
 			HostPath: &corev1.HostPathVolumeSource{
-				Path: "/var/lib/lxcfs/sys/devices/system/cpu/online",
+				Path: "/var/lib/lxcfs/proc/slabinfo",
+			},
+		},
+	},
+	// {
+	// 	Name: "lxcfs-proc-pressure-io",
+	// 	VolumeSource: corev1.VolumeSource{
+	// 		HostPath: &corev1.HostPathVolumeSource{
+	// 			Path: "/var/lib/lxcfs/proc/pressure/io",
+	// 		},
+	// 	},
+	// },
+	// {
+	// 	Name: "lxcfs-proc-pressure-cpu",
+	// 	VolumeSource: corev1.VolumeSource{
+	// 		HostPath: &corev1.HostPathVolumeSource{
+	// 			Path: "/var/lib/lxcfs/proc/pressure/cpu",
+	// 		},
+	// 	},
+	// },
+	// {
+	// 	Name: "lxcfs-proc-pressure-memory",
+	// 	VolumeSource: corev1.VolumeSource{
+	// 		HostPath: &corev1.HostPathVolumeSource{
+	// 			Path: "/var/lib/lxcfs/proc/pressure/memory",
+	// 		},
+	// 	},
+	// },
+	{
+		Name: "lxcfs-sys-devices-system-cpu",
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: "/var/lib/lxcfs/sys/devices/system/cpu",
 			},
 		},
 	},
 }
 
 // main mutation process
-func (whsvr *WebhookServer) mutatePod(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
+func (whsvr *WebhookServer) mutatePod(ar *v1.AdmissionReview) *v1.AdmissionResponse {
 	req := ar.Request
 	var (
 		objectMeta                      *metav1.ObjectMeta
@@ -157,7 +218,7 @@ func (whsvr *WebhookServer) mutatePod(ar *v1beta1.AdmissionReview) *v1beta1.Admi
 
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
 		glog.Errorf("Could not unmarshal raw object to pod: %v", err)
-		return &v1beta1.AdmissionResponse{
+		return &v1.AdmissionResponse{
 			Result: &metav1.Status{
 				Message: err.Error(),
 			},
@@ -167,24 +228,24 @@ func (whsvr *WebhookServer) mutatePod(ar *v1beta1.AdmissionReview) *v1beta1.Admi
 
 	if !mutationRequired(ignoredNamespaces, objectMeta) {
 		glog.Infof("Skipping validation for %s/%s due to policy check", resourceNamespace, resourceName)
-		return &v1beta1.AdmissionResponse{
+		return &v1.AdmissionResponse{
 			Allowed: true,
 		}
 	}
 
 	patchBytes, err := createPodPatch(&pod)
 	if err != nil {
-		return &v1beta1.AdmissionResponse{
+		return &v1.AdmissionResponse{
 			Result: &metav1.Status{
 				Message: err.Error(),
 			},
 		}
 	}
 
-	patchType := v1beta1.PatchTypeJSONPatch
+	patchType := v1.PatchTypeJSONPatch
 
 	glog.Infof("AdmissionResponse: patch=%v\n", string(patchBytes))
-	return &v1beta1.AdmissionResponse{
+	return &v1.AdmissionResponse{
 		UID:       req.UID,
 		Allowed:   true,
 		Patch:     patchBytes,
@@ -208,7 +269,7 @@ func createPodPatch(pod *corev1.Pod) ([]byte, error) {
 	} else {
 		op.Op = "add"
 		if pod.Annotations[admissionWebhookAnnotationStatusKey] != "" {
-			op.Op = " replace"
+			op.Op = "replace"
 		}
 		op.Path = "/metadata/annotations/" + escapeJSONPointerValue(admissionWebhookAnnotationStatusKey)
 		op.Value = "mutated"
@@ -268,8 +329,9 @@ func createPodPatch(pod *corev1.Pod) ([]byte, error) {
 }
 
 // validate deployments and services
-func (whsvr *WebhookServer) validatePod(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
-	return &v1beta1.AdmissionResponse{
+func (whsvr *WebhookServer) validatePod(ar *v1.AdmissionReview) *v1.AdmissionResponse {
+	return &v1.AdmissionResponse{
+		UID:     ar.Request.UID,
 		Allowed: true,
 	}
 }

@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: lxcfs-admission-webhook-deployment
+  name: lxcfs-admission-webhook
   labels:
     app: lxcfs-admission-webhook
 spec:
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: lxcfs-admission-webhook
-          image: registry.cn-hangzhou.aliyuncs.com/denverdino/lxcfs-admission-webhook:v1
+          image: ${WEBHOOK_IMAGE}
           imagePullPolicy: IfNotPresent
           args:
             - -tlsCertFile=/etc/webhook/certs/cert.pem

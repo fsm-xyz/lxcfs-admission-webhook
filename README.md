@@ -1,48 +1,48 @@
 # Kubernetes Admission Webhook for LXCFS
 
+## 本项目更改
+
++ go1.25.5
++ k8s 1.35 API
++ debian13
++ lxcfs 6.0.5
++ 从v1beta1 升级到 v1
++ 支持指定namespace
++ 支持指定pod annotation(todo)
++ 支持指定pod label(todo)
++ 支持/sys整个目录(6.0.5 lxcfs)
+
+---
+
 This project shows how to build and deploy an [AdmissionWebhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#admission-webhooks) for [LXCFS](https://github.com/lxc/lxcfs).
 
 ## Prerequisites
 
-Kubernetes 1.9.0 or above with the `admissionregistration.k8s.io/v1beta1` API enabled. Verify that by the following command:
+Kubernetes with the `admissionregistration.k8s.io/v1` API enabled. Verify that by the following command:
 ```
-kubectl api-versions | grep admissionregistration.k8s.io/v1beta1
+kubectl api-versions | grep admissionregistration.k8s.io/v1
 ```
 The result should be:
 ```
-admissionregistration.k8s.io/v1beta1
+admissionregistration.k8s.io/v1
 ```
 
 In addition, the `MutatingAdmissionWebhook` and `ValidatingAdmissionWebhook` admission controllers should be added and listed in the correct order in the admission-control flag of kube-apiserver.
 
 ## Build
 
-1. Setup dep
-
-   The repo uses [dep](https://github.com/golang/dep) as the dependency management tool for its Go codebase. Install `dep` by the following command:
-
-```
-go get -u github.com/golang/dep/cmd/dep
-```
-
-2. Build and push docker image
-   
-```
-./build
-```
-
-## Deploy 
- 
-1. Deploy lxcfs to worker nodes
-
-```
-kubectl apply -f deployment/lxcfs-daemonset.yaml
+1. 构建镜像并推送到自己的镜像中心
+```sh
+./build-all-registry.sh <registry> <namespace> <lxcfs-tag> <webhook-tag>
 ```
 
 2. Install injector with lxcfs-admission-webhook
 
-```
-deployment/install.sh
+```sh
+# 直接指定镜像进行安装
+export LXCFS_IMAGE=lxcfs:6.0.5
+export WEBHOOK_IMAGE=lxcfs-admission-webhook:v1
+./deployment/install.sh lxcfs
 ```
 
 ## Test
@@ -66,7 +66,7 @@ kubectl apply -f deployment/web.yaml
 
 
 ```
-$ kubectl get pod
+$ kubectl get pod -n <namespace>
 
 NAME                                                 READY   STATUS    RESTARTS   AGE
 lxcfs-admission-webhook-deployment-f4bdd6f66-5wrlg   1/1     Running   0          8m29s
@@ -91,15 +91,3 @@ Swap:            0          0          0
 ```
 deployment/uninstall.sh
 ```
-
-2. Uninstall lxcfs from cluster nodes
-
-```
-kubectl delete -f deployment/lxcfs-daemonset.yaml
-```
-
-## How does it work?
-
-If you want to know webhooks in depth, please check [it](https://aliyun.com/blog/k8s-admission-webhooks/) out!
-
-
